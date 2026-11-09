@@ -47,6 +47,14 @@ docker compose up -d postgres
 ./mvnw spring-boot:run
 ```
 
+## Run with builded Version
+```bash
+docker compose up -d postgres
+java -jar target/balance-challenge-0.0.1-SNAPSHOT.jar
+
+```
+
+
 ### Access Swagger Ui:
 
 [Balance Swagger http://127.0.0.1:8080/swagger-ui/index.html](http://127.0.0.1:8080/swagger-ui/index.html)
