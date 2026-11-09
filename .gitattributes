@@ -1,2 +1,35 @@
-/mvnw text eol=lf
-*.cmd text eol=crlf
+# Maven and Gradle build outputs
+target/
+build/
+.gradle/
+
+# IntelliJ IDEA and Eclipse / Spring Tools
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+.springBeans
+.sts4-cache/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Logs and OS metadata
+*.log
+.DS_Store
+Thumbs.db
+
+# Generated directory from an unresolved Maven expression
+/${project.build.directory}/
+
+# Keep build wrappers, even if a global rule ignores JARs
+!**/.mvn/wrapper/maven-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
