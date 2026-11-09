@@ -52,11 +52,10 @@ class BalanceServiceImpl implements BalanceService {
 		if (claim.isEmpty()) {
 			return replay(request);
 		}
-        System.out.println("---claim:" + claim.getAsLong());
+
 		// Serialize different transactions that update the same account.
 		Account account = accountRepository.findByIdForUpdate(accountId).orElse(null);
-        System.out.println("---called:");
-		if (account == null) {
+ 		if (account == null) {
 			return reject(request, claim.getAsLong(), FailureCode.ACCOUNT_NOT_FOUND, null, null);
 		}
 		if (!account.credit(amount)) {
