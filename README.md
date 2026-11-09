@@ -31,9 +31,8 @@ Balances and amounts use integer `long` values. Negative balances and non-positi
 
 ### Decision Trade of design
 
-1. for Unknown Account because of security and sensetive i stored in db
-2. if source and destination is same service throw exception `Source and destination accounts must be different`
-3.
+1. For unknown account because of security and sensetive  stored error in db
+2. If source and destination is same service throw exception `Source and destination accounts must be different`
 
 ## Run locally
 
