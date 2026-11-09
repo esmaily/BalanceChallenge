@@ -15,23 +15,5 @@ services:
       timeout: 3s
       retries: 10
 
-#  app:
-#    build:
-#      context: .
-#    environment:
-#      DB_URL: jdbc:postgresql://postgres:5432/balance
-#      DB_USERNAME: balance
-#      DB_PASSWORD: balance
-#    ports:
-#      - "8080:8080"
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#    healthcheck:
-#      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/actuator/health | grep -q UP"]
-#      interval: 10s
-#      timeout: 3s
-#      retries: 10
-
 volumes:
   balance-postgres-data:
