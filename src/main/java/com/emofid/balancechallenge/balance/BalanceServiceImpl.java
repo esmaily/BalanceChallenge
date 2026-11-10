@@ -7,16 +7,20 @@ import com.emofid.balancechallenge.balance.exception.AccountNotFoundException;
 import com.emofid.balancechallenge.balance.exception.InvalidBalanceRequestException;
 import com.emofid.balancechallenge.balance.exception.OperationInProgressException;
 import com.emofid.balancechallenge.balance.exception.TransactionConflictException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.OptionalLong;
+import java.util.concurrent.locks.StampedLock;
 
 /**
  * Executes idempotent balance operations in a single database transaction.
  * Operation claims prevent duplicate effects, while row locks serialize balance changes.
  */
+@Slf4j
 @Service
+
 class BalanceServiceImpl implements BalanceService {
 
 	private static final int MAX_IDENTIFIER_LENGTH = 100;
@@ -27,9 +31,10 @@ class BalanceServiceImpl implements BalanceService {
 	BalanceServiceImpl(AccountRepository accountRepository, OperationStore operationStore) {
 		this.accountRepository = accountRepository;
 		this.operationStore = operationStore;
+
 	}
 
-	@Override
+
 	@Transactional
 	public void createAccount(String accountId) {
 		validateIdentifier(accountId, "accountId");
@@ -39,7 +44,7 @@ class BalanceServiceImpl implements BalanceService {
 		accountRepository.saveAndFlush(Account.open(accountId));
 	}
 
-	@Override
+
 	@Transactional
 	public OperationResult credit(String accountId, long amount, String transactionId) {
 		validateOperation(accountId, amount, transactionId);
@@ -66,7 +71,7 @@ class BalanceServiceImpl implements BalanceService {
 		return succeed(request, claim.getAsLong(), null, account.getBalance());
 	}
 
-	@Override
+
 	@Transactional
 	public OperationResult debit(String accountId, long amount, String transactionId) {
 		validateOperation(accountId, amount, transactionId);
@@ -91,7 +96,7 @@ class BalanceServiceImpl implements BalanceService {
 		return succeed(request, claim.getAsLong(), account.getBalance(), null);
 	}
 
-	@Override
+
 	@Transactional
 	public OperationResult transfer(
 			String sourceAccountId,
@@ -160,7 +165,7 @@ class BalanceServiceImpl implements BalanceService {
 		);
 	}
 
-	@Override
+
 	@Transactional(readOnly = true)
 	public long getBalance(String accountId) {
 		validateIdentifier(accountId, "accountId");
@@ -173,11 +178,28 @@ class BalanceServiceImpl implements BalanceService {
 		StoredOperation stored = operationStore.findRequired(request.transactionId());
 		// A transaction ID can be retried only with its original payload.
 		if (!request.matches(stored)) {
+			log.warn(
+					"Balance operation transaction conflict transactionId={} requestedType={} storedType={}",
+					request.transactionId(),
+					request.operationType(),
+					stored.operationType()
+			);
 			throw new TransactionConflictException(request.transactionId());
 		}
 		if (stored.status() == OperationStatus.PENDING) {
+			log.info(
+					"Balance operation is still pending transactionId={} operationType={}",
+					request.transactionId(),
+					request.operationType()
+			);
 			throw new OperationInProgressException(request.transactionId());
 		}
+		log.debug(
+				"Balance operation replayed transactionId={} operationType={} status={}",
+				request.transactionId(),
+				stored.operationType(),
+				stored.status()
+		);
 		return stored.toResult();
 	}
 

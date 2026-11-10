@@ -7,6 +7,7 @@ import com.emofid.balancechallenge.balance.exception.InvalidBalanceRequestExcept
 import com.emofid.balancechallenge.balance.exception.OperationInProgressException;
 import com.emofid.balancechallenge.balance.exception.TransactionConflictException;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -60,6 +62,13 @@ public class GlobalExceptionHandler {
 			String message,
 			HttpServletRequest request
 	) {
+		log.info(
+				"API request rejected method={} path={} status={} code={}",
+				request.getMethod(),
+				request.getRequestURI(),
+				status.value(),
+				code
+		);
 		return ResponseEntity.status(status).body(new ApiError(
 				Instant.now(),
 				status.value(),
