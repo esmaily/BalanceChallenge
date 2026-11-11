@@ -1,7 +1,6 @@
 --liquibase formatted sql
 
 --changeset balance-challenge:001
-CREATE SEQUENCE balance_operation_fence_seq START WITH 1 INCREMENT BY 1;
 
 CREATE TABLE accounts (
     id VARCHAR(100) PRIMARY KEY,
@@ -15,7 +14,6 @@ CREATE TABLE accounts (
 CREATE TABLE balance_operation (
     id BIGSERIAL PRIMARY KEY,
     transaction_id VARCHAR(100) NOT NULL,
-    fencing_token BIGINT NOT NULL DEFAULT nextval('balance_operation_fence_seq'),
     operation_type VARCHAR(20) NOT NULL,
     source_account_id VARCHAR(100),
     destination_account_id VARCHAR(100),
@@ -27,7 +25,6 @@ CREATE TABLE balance_operation (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ,
     CONSTRAINT uk_balance_operation_transaction_id UNIQUE (transaction_id),
-    CONSTRAINT uk_balance_operation_fencing_token UNIQUE (fencing_token),
     CONSTRAINT ck_balance_operation_positive_amount CHECK (amount > 0),
     CONSTRAINT ck_balance_operation_type CHECK (operation_type IN ('CREDIT', 'DEBIT', 'TRANSFER')),
     CONSTRAINT ck_balance_operation_status CHECK (status IN ('PENDING', 'SUCCEEDED', 'REJECTED')),

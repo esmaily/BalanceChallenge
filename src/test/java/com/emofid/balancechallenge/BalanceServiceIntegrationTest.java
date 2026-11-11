@@ -47,6 +47,19 @@ class BalanceServiceIntegrationTest extends PostgresIntegrationTest {
 	}
 
 	@Test
+	void creditOverflowIsRejectedWithoutChangingBalance() {
+		balanceService.createAccount("A");
+		balanceService.credit("A", Long.MAX_VALUE, "max-credit");
+
+		OperationResult result = balanceService.credit("A", 1, "overflow-credit");
+
+		assertThat(result.status()).isEqualTo(OperationStatus.REJECTED);
+		assertThat(result.failureCode()).isEqualTo(FailureCode.BALANCE_OVERFLOW);
+		assertThat(result.destinationBalance()).isEqualTo(Long.MAX_VALUE);
+		assertThat(balanceService.getBalance("A")).isEqualTo(Long.MAX_VALUE);
+	}
+
+	@Test
 	void exactRetryReturnsStoredResultWithoutApplyingCreditTwice() {
 		balanceService.createAccount("A");
 
