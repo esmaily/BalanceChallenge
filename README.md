@@ -19,11 +19,10 @@ Every credit, debit, or transfer runs in one `READ_COMMITTED` database transacti
 
 1. The request atomically claims its `transactionId` with `INSERT ... ON CONFLICT DO NOTHING`.
 2. A unique constraint on `balance_operation.transaction_id` permits only one owner.
-3. PostgreSQL assigns a monotonic fencing token. Completion succeeds only when both the transaction ID and fencing token match a still-`PENDING` operation.
-4. The affected account row is locked with `SELECT ... FOR UPDATE` before its balance changes.
-5. Transfers lock both accounts in ascending account-ID order, regardless of transfer direction. This stable lock ordering prevents the usual A-to-B / B-to-A deadlock.
-6. The account entity also has a JPA `@Version` column as a secondary lost-update guard.
-7. The operation result and balance changes commit together. A failure rolls both back.
+3. Credits and debits use a conditional `UPDATE ... RETURNING` statement, so each single-account balance change is atomic without a preceding explicit lock query.
+4. Transfers lock both accounts in ascending account-ID order, regardless of transfer direction. This stable lock ordering prevents the usual A-to-B / B-to-A deadlock.
+5. The account entity also has a JPA `@Version` column as a secondary lost-update guard.
+6. The operation result and balance changes commit together. A failure rolls both back.
 
 An exact retry with the same transaction ID and payload returns the stored result without applying the balance effect again. Reusing a transaction ID with a different operation, account, or amount returns HTTP `409 Conflict`.
 
@@ -59,7 +58,7 @@ java -jar target/balance-challenge-0.0.1-SNAPSHOT.jar
 [Balance Swagger http://127.0.0.1:8080/swagger-ui/index.html](http://127.0.0.1:8080/swagger-ui/index.html)
 
 Database settings can be overridden with `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`.
-Hibernate SQL and bind values are logged by default. Set `SQL_LOG_LEVEL=OFF` and
+Hibernate and Spring JDBC SQL plus bind values are logged by default. Set `SQL_LOG_LEVEL=OFF` and
 `SQL_BIND_LOG_LEVEL=OFF` to disable them, for example in production.
 
 ## Tests
