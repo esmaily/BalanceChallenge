@@ -1,6 +1,7 @@
 package com.emofid.balancechallenge.balance;
 
 import com.emofid.balancechallenge.account.Account;
+import com.emofid.balancechallenge.account.AccountBalanceStore;
 import com.emofid.balancechallenge.account.AccountRepository;
 import com.emofid.balancechallenge.balance.exception.AccountAlreadyExistsException;
 import com.emofid.balancechallenge.balance.exception.AccountNotFoundException;
@@ -16,7 +17,7 @@ import java.util.concurrent.locks.StampedLock;
 
 /**
  * Executes idempotent balance operations in a single database transaction.
- * Operation claims prevent duplicate effects, while row locks serialize balance changes.
+ * Single-account changes are atomic; transfers use ordered row locks.
  */
 @Slf4j
 @Service
@@ -26,10 +27,16 @@ class BalanceServiceImpl implements BalanceService {
 	private static final int MAX_IDENTIFIER_LENGTH = 100;
 
 	private final AccountRepository accountRepository;
+	private final AccountBalanceStore accountBalanceStore;
 	private final OperationStore operationStore;
 
-	BalanceServiceImpl(AccountRepository accountRepository, OperationStore operationStore) {
+	BalanceServiceImpl(
+			AccountRepository accountRepository,
+			AccountBalanceStore accountBalanceStore,
+			OperationStore operationStore
+	) {
 		this.accountRepository = accountRepository;
+		this.accountBalanceStore = accountBalanceStore;
 		this.operationStore = operationStore;
 
 	}
@@ -53,22 +60,22 @@ class BalanceServiceImpl implements BalanceService {
 		);
 
 		// Claim first so exact retries do not lock the account unnecessarily.
-		OptionalLong claim = operationStore.tryClaim(request);
-		if (claim.isEmpty()) {
+		boolean claimed = operationStore.tryClaim(request);
+		if (!claimed) {
 			return replay(request);
 		}
 
-		// Serialize different transactions that update the same account.
-		Account account = accountRepository.findByIdForUpdate(accountId).orElse(null);
- 		if (account == null) {
-			return reject(request, claim.getAsLong(), FailureCode.ACCOUNT_NOT_FOUND, null, null);
+		// PostgreSQL applies the balance change atomically and returns the new value.
+		OptionalLong balance = accountBalanceStore.credit(accountId, amount);
+		if (balance.isPresent()) {
+			return succeed(request, null, balance.getAsLong());
 		}
-		if (!account.credit(amount)) {
-			return reject(
-					request, claim.getAsLong(), FailureCode.BALANCE_OVERFLOW, null, account.getBalance()
-			);
+
+		OptionalLong currentBalance = accountBalanceStore.findBalance(accountId);
+		if (currentBalance.isEmpty()) {
+			return reject(request, FailureCode.ACCOUNT_NOT_FOUND, null, null);
 		}
-		return succeed(request, claim.getAsLong(), null, account.getBalance());
+		return reject(request, FailureCode.BALANCE_OVERFLOW, null, currentBalance.getAsLong());
 	}
 
 
@@ -79,21 +86,21 @@ class BalanceServiceImpl implements BalanceService {
 				transactionId, OperationType.DEBIT, accountId, null, amount
 		);
 
-		OptionalLong claim = operationStore.tryClaim(request);
-		if (claim.isEmpty()) {
+		boolean claimed = operationStore.tryClaim(request);
+		if (!claimed) {
 			return replay(request);
 		}
 
-		Account account = accountRepository.findByIdForUpdate(accountId).orElse(null);
-		if (account == null) {
-			return reject(request, claim.getAsLong(), FailureCode.ACCOUNT_NOT_FOUND, null, null);
+		OptionalLong balance = accountBalanceStore.debit(accountId, amount);
+		if (balance.isPresent()) {
+			return succeed(request, balance.getAsLong(), null);
 		}
-		if (!account.debit(amount)) {
-			return reject(
-					request, claim.getAsLong(), FailureCode.INSUFFICIENT_FUNDS, account.getBalance(), null
-			);
+
+		OptionalLong currentBalance = accountBalanceStore.findBalance(accountId);
+		if (currentBalance.isEmpty()) {
+			return reject(request, FailureCode.ACCOUNT_NOT_FOUND, null, null);
 		}
-		return succeed(request, claim.getAsLong(), account.getBalance(), null);
+		return reject(request, FailureCode.INSUFFICIENT_FUNDS, currentBalance.getAsLong(), null);
 	}
 
 
@@ -118,8 +125,8 @@ class BalanceServiceImpl implements BalanceService {
 				amount
 		);
 
-		OptionalLong claim = operationStore.tryClaim(request);
-		if (claim.isEmpty()) {
+		boolean claimed = operationStore.tryClaim(request);
+		if (!claimed) {
 			return replay(request);
 		}
 
@@ -129,11 +136,11 @@ class BalanceServiceImpl implements BalanceService {
 
 		Account first = accountRepository.findByIdForUpdate(firstId).orElse(null);
 		if (first == null) {
-			return reject(request, claim.getAsLong(), FailureCode.ACCOUNT_NOT_FOUND, null, null);
+			return reject(request, FailureCode.ACCOUNT_NOT_FOUND, null, null);
 		}
 		Account second = accountRepository.findByIdForUpdate(secondId).orElse(null);
 		if (second == null) {
-			return reject(request, claim.getAsLong(), FailureCode.ACCOUNT_NOT_FOUND, null, null);
+			return reject(request, FailureCode.ACCOUNT_NOT_FOUND, null, null);
 		}
 
 		Account source = sourceAccountId.equals(firstId) ? first : second;
@@ -141,7 +148,6 @@ class BalanceServiceImpl implements BalanceService {
 		if (source.getBalance() < amount) {
 			return reject(
 					request,
-					claim.getAsLong(),
 					FailureCode.INSUFFICIENT_FUNDS,
 					source.getBalance(),
 					destination.getBalance()
@@ -150,7 +156,6 @@ class BalanceServiceImpl implements BalanceService {
 		if (!destination.credit(amount)) {
 			return reject(
 					request,
-					claim.getAsLong(),
 					FailureCode.BALANCE_OVERFLOW,
 					source.getBalance(),
 					destination.getBalance()
@@ -159,7 +164,6 @@ class BalanceServiceImpl implements BalanceService {
 		source.debit(amount);
 		return succeed(
 				request,
-				claim.getAsLong(),
 				source.getBalance(),
 				destination.getBalance()
 		);
@@ -205,13 +209,11 @@ class BalanceServiceImpl implements BalanceService {
 
 	private OperationResult succeed(
 			OperationRequest request,
-			long fencingToken,
 			Long sourceBalance,
 			Long destinationBalance
 	) {
 		operationStore.complete(
 				request.transactionId(),
-				fencingToken,
 				OperationStatus.SUCCEEDED,
 				null,
 				sourceBalance,
@@ -229,14 +231,12 @@ class BalanceServiceImpl implements BalanceService {
 
 	private OperationResult reject(
 			OperationRequest request,
-			long fencingToken,
 			FailureCode failureCode,
 			Long sourceBalance,
 			Long destinationBalance
 	) {
 		operationStore.complete(
 				request.transactionId(),
-				fencingToken,
 				OperationStatus.REJECTED,
 				failureCode,
 				sourceBalance,

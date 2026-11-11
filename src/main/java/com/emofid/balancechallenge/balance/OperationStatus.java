@@ -3,5 +3,6 @@ package com.emofid.balancechallenge.balance;
 public enum OperationStatus {
 	PENDING,
 	SUCCEEDED,
-	REJECTED
+	REJECTED,
+    UNKNOWN
 }

@@ -5,8 +5,6 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.List;
-import java.util.OptionalLong;
 
 @Repository
 class OperationStore {
@@ -18,7 +16,6 @@ class OperationStore {
 			)
 			VALUES (?, ?, ?, ?, ?, 'PENDING')
 			ON CONFLICT (transaction_id) DO NOTHING
-			RETURNING fencing_token
 			""";
 
 	private static final String FIND_SQL = """
@@ -34,7 +31,6 @@ class OperationStore {
 			SET status = ?, failure_code = ?, source_balance_after = ?,
 			    destination_balance_after = ?, completed_at = CURRENT_TIMESTAMP
 			WHERE transaction_id = ?
-			  AND fencing_token = ?
 			  AND status = 'PENDING'
 			""";
 
@@ -44,17 +40,16 @@ class OperationStore {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
-	OptionalLong tryClaim(OperationRequest request) {
-		List<Long> tokens = jdbcTemplate.query(
+	boolean tryClaim(OperationRequest request) {
+		int inserted = jdbcTemplate.update(
 				CLAIM_SQL,
-				(resultSet, rowNumber) -> resultSet.getLong("fencing_token"),
 				request.transactionId(),
 				request.operationType().name(),
 				request.sourceAccountId(),
 				request.destinationAccountId(),
 				request.amount()
 		);
-		return tokens.isEmpty() ? OptionalLong.empty() : OptionalLong.of(tokens.getFirst());
+		return inserted == 1;
 	}
 
 	StoredOperation findRequired(String transactionId) {
@@ -66,7 +61,6 @@ class OperationStore {
 
 	void complete(
 			String transactionId,
-			long fencingToken,
 			OperationStatus status,
 			FailureCode failureCode,
 			Long sourceBalance,
@@ -78,11 +72,10 @@ class OperationStore {
 				failureCode == null ? null : failureCode.name(),
 				sourceBalance,
 				destinationBalance,
-				transactionId,
-				fencingToken
+				transactionId
 		);
 		if (updated != 1) {
-			throw new IllegalStateException("Operation completion rejected by fencing token");
+			throw new IllegalStateException("Claimed operation is no longer pending");
 		}
 	}
 
